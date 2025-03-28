@@ -1,32 +1,16 @@
-FROM node:18-alpine AS build-stage
-
-# set working directory
+# ใช้ Node.js เพื่อติดตั้งและ Build React
+FROM node:18 AS builder
 WORKDIR /app
-
-# copy package.json and package-lock.json to workdir
-COPY package*.json ./
-
-# install app dependencies or npm ci
-RUN npm ci
-
-# copy everyting (sourcecode) to docker env (workdir)
-COPY . ./
-
-# build production
+COPY package.json package-lock.json ./
+RUN npm install
+COPY . .
 RUN npm run build
 
-#Stage 2
-FROM nginx:1.25.0-alpine AS production-stage
+# ตรวจสอบว่าไฟล์ถูกสร้างจริง
+RUN ls -la /app/dist
 
+# ใช้ Nginx เพื่อเสิร์ฟไฟล์ Static
+FROM nginx:latest
 WORKDIR /usr/share/nginx/html
-
-#remove all default files nginx
-RUN rm -rf ./*
-
-#copy nginx.conf
-COPY nginx.conf /etc/nginx/nginx.conf
-
-#copy all files and folder (dist) to workdir
-COPY --from=build-stage /app/dist ./
-
-ENTRYPOINT ["nginx", "-g", "daemon off;"]
+COPY --from=builder /app/dist .
+CMD ["nginx", "-g", "daemon off;"]
