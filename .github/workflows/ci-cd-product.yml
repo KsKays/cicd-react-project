@@ -1,0 +1,53 @@
+name: "build and deploy production"
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  release-docker-image-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Extract tag name
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Verify extracted tag
+        run: echo "Using TAG_NAME=${{ env.TAG_NAME }}"
+
+      - name: Build and push Docker image
+        uses: mr-smithers-excellent/docker-build-push@v6
+        with:
+          image: cicd-react-project
+          registry: ghcr.io/kskays
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          tags: ${{ env.TAG_NAME }}
+
+  auto-deploy-docker-job:
+    needs: release-docker-image-job
+    runs-on: ubuntu-latest
+    env:
+      CONTAINER_NAME: "cicd-react-project"
+    steps:
+      - name: Extract tag name again (ensure env variable is set)
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Deploy via SSH with Password
+        run: |
+          sshpass -p '${{ secrets.SSH_PASSWORD }}' ssh -o StrictHostKeyChecking=no root@167.99.74.98 << 'EOF'
+            docker logout ghcr.io
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            # docker rm -f ${{ env.CONTAINER_NAME }} || true
+            docker pull ghcr.io/kskays/my-bmi-app:${{ env.TAG_NAME }}
+            docker run --restart=always -d --pull always --name senpru005 -p 9005:80 ghcr.io/kskays/my-bmi-app:${{ env.TAG_NAME }}
+          EOF
